@@ -101,20 +101,23 @@ class Match:
             "SELECT * FROM match_players WHERE match_id = ? AND is_bowling = 1", (self.match_id,)
         ).fetchone()
 
-    def record_delivery(self, innings, over, ball, batter_id, bowler_id, b_choice, bw_choice, runs, is_wicket):
+        def record_delivery(self, innings, over, ball, batter_id, bowler_id, b_choice, bw_choice, runs, is_wicket):
         self.db.execute(
             "INSERT INTO deliveries (match_id, innings, over_number, ball_number, batter_id, bowler_id, batter_choice, bowler_choice, runs, is_wicket) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (self.match_id, innings, over, ball, batter_id, bowler_id, b_choice, bw_choice, runs, is_wicket)
         )
         if is_wicket:
             self.db.execute("UPDATE match_players SET is_out = 1 WHERE match_id = ? AND telegram_id = ?", (self.match_id, batter_id))
+            
         self.db.execute(
             "UPDATE match_players SET runs = runs + ?, balls = balls + 1 WHERE match_id = ? AND telegram_id = ?",
             (runs, self.match_id, batter_id)
         )
+        
+        # FIX: Yahan 'wickets + 1' ki jagah 'wickets + ?' kiya hai taaki 3 variables perfectly fit ho
         self.db.execute(
-            "UPDATE match_players SET wickets = wickets + 1 WHERE match_id = ? AND telegram_id = ?",
-            (1, self.match_id, bowler_id) if is_wicket else (0, self.match_id, bowler_id)
+            "UPDATE match_players SET wickets = wickets + ? WHERE match_id = ? AND telegram_id = ?",
+            (1 if is_wicket else 0, self.match_id, bowler_id)
         )
         self.db.commit()
 

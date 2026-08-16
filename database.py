@@ -5,7 +5,8 @@ DB_NAME = "handcricket.db"
 local = threading.local()
 
 def get_db():
-    if 'db' not in local:
+    # Yahan 'in' ki jagah 'hasattr' use kiya hai
+    if not hasattr(local, 'db'):
         local.db = sqlite3.connect(DB_NAME, check_same_thread=False)
         local.db.row_factory = sqlite3.Row
         local.db.execute("PRAGMA journal_mode=WAL")

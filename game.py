@@ -168,13 +168,19 @@ class Match:
         self.db.execute("UPDATE match_players SET team = ? WHERE match_id = ? AND telegram_id = ?", (new_team, self.match_id, user_id))
         self.db.commit()
 
+
+# ==========================================
+# FIXED GLOBAL QUERIES (Using SELECT *)
+# ==========================================
 def get_match_by_group(chat_id):
     db = get_db()
-    return db.execute("SELECT match_id FROM matches WHERE chat_id = ? AND status NOT IN ('RESULT', 'LOBBY')", (chat_id,)).fetchone()
+    # FIX: Added * instead of just match_id to prevent KeyError
+    return db.execute("SELECT * FROM matches WHERE chat_id = ? AND status NOT IN ('RESULT', 'LOBBY')", (chat_id,)).fetchone()
 
 def get_lobby_by_group(chat_id):
     db = get_db()
-    return db.execute("SELECT match_id FROM matches WHERE chat_id = ? AND status = 'LOBBY'", (chat_id,)).fetchone()
+    # FIX: Added * instead of just match_id to prevent KeyError
+    return db.execute("SELECT * FROM matches WHERE chat_id = ? AND status = 'LOBBY'", (chat_id,)).fetchone()
 
 def get_user_lang(user_id):
     # Simplified: defaults to eng. Can be expanded to a user_prefs table.

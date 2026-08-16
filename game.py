@@ -101,17 +101,19 @@ class Match:
             "SELECT * FROM match_players WHERE match_id = ? AND is_bowling = 1", (self.match_id,)
         ).fetchone()
 
-            def record_delivery(self, innings, over, ball, batter_id, bowler_id, b_choice, bw_choice, runs, is_wicket):
+    def record_delivery(self, innings, over, ball, batter_id, bowler_id, b_choice, bw_choice, runs, is_wicket):
         self.db.execute(
             "INSERT INTO deliveries (match_id, innings, over_number, ball_number, batter_id, bowler_id, batter_choice, bowler_choice, runs, is_wicket) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (self.match_id, innings, over, ball, batter_id, bowler_id, b_choice, bw_choice, runs, is_wicket)
         )
         if is_wicket:
             self.db.execute("UPDATE match_players SET is_out = 1 WHERE match_id = ? AND telegram_id = ?", (self.match_id, batter_id))
+            
         self.db.execute(
             "UPDATE match_players SET runs = runs + ?, balls = balls + 1 WHERE match_id = ? AND telegram_id = ?",
             (runs, self.match_id, batter_id)
         )
+        
         self.db.execute(
             "UPDATE match_players SET wickets = wickets + ? WHERE match_id = ? AND telegram_id = ?",
             (1 if is_wicket else 0, self.match_id, bowler_id)
@@ -140,12 +142,10 @@ class Match:
     def is_delivery_valid(self, bowler_id, choice, over_num, innings):
         last = self.get_last_deliveries(over_num, innings, limit=2)
         
-        # Consecutive check
         if len(last) >= 1 and last[0]['bowler_choice'] == choice:
             if len(last) >= 2 and last[1]['bowler_choice'] == choice:
                 return False, "has already been used twice consecutively."
         
-        # Over limit check
         over_balls = self.db.execute(
             "SELECT COUNT(*) as c FROM deliveries WHERE match_id = ? AND innings = ? AND over_number = ? AND bowler_id = ? AND bowler_choice = ?",
             (self.match_id, innings, over_num, bowler_id, choice)
@@ -169,21 +169,15 @@ class Match:
         self.db.commit()
 
 
-# ==========================================
-# FIXED GLOBAL QUERIES (Using SELECT *)
-# ==========================================
 def get_match_by_group(chat_id):
     db = get_db()
-    # FIX: Added * instead of just match_id to prevent KeyError
     return db.execute("SELECT * FROM matches WHERE chat_id = ? AND status NOT IN ('RESULT', 'LOBBY')", (chat_id,)).fetchone()
 
 def get_lobby_by_group(chat_id):
     db = get_db()
-    # FIX: Added * instead of just match_id to prevent KeyError
     return db.execute("SELECT * FROM matches WHERE chat_id = ? AND status = 'LOBBY'", (chat_id,)).fetchone()
 
 def get_user_lang(user_id):
-    # Simplified: defaults to eng. Can be expanded to a user_prefs table.
     return "eng"
 
 def get_commentary(lang, key, batter=None):

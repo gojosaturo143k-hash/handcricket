@@ -34,25 +34,27 @@ def get_mention(user):
             return f"@{user.username}"
         return f"[{name}](tg://user?id={user.id})"
     
-    # Agar user DB se aaya hua Row/Dict hai (jaise match_players se)
-    if isinstance(user, dict) or hasattr(user, 'keys'):
-        username = user.get('username')
-        name = user.get('display_name') or user.get('first_name') or "Player"
-        if username:
-            return f"@{username}"
-        return f"[{name}](tg://user?id={user['telegram_id']})"
+    # Agar user DB se aaya hua Row hai (sqlite3.Row ke liye 'in' keyword use karte hain)
+    username = user['username'] if 'username' in user else None
+    name = user['display_name'] if 'display_name' in user else "Player"
     
-    return str(user)
+    if username:
+        return f"@{username}"
+    
+    uid = user['telegram_id'] if 'telegram_id' in user else 0
+    return f"[{name}](tg://user?id={uid})"
 
 def get_display_name(user):
     # Agar user Telegram User object hai
     if hasattr(user, 'first_name'):
         return user.first_name or "Player"
     
-    # Agar user DB se aaya hua Row/Dict hai
-    if isinstance(user, dict) or hasattr(user, 'keys'):
-        return user.get('display_name') or user.get('first_name') or "Player"
-    
+    # Agar user DB se aaya hua Row hai
+    if 'display_name' in user:
+        return user['display_name'] or "Player"
+    if 'first_name' in user:
+        return user['first_name'] or "Player"
+        
     return "Player"
 
 def get_mention_by_id(client, chat_id, user_id):

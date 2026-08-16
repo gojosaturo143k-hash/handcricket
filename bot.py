@@ -819,7 +819,7 @@ async def start_super_over(client, message):
     await prompt_team_batting(client, message.chat.id, active['match_id'])
 
 # ==========================================
-# FLASK SERVER (Directly inside bot.py)
+# FLASK & PYTHON INTEGRATION
 # ==========================================
 from flask import Flask
 
@@ -833,5 +833,17 @@ def index():
 def health():
     return "Healthy", 200
 
-# Gunicorn automatically finds 'app' above. 
-# No if __name__ == "__main__" needed anymore!
+def run_flask():
+    import os
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port, use_reloader=False)
+
+if __name__ == "__main__":
+    # Flask ko background thread mein daal diya
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info("Started Flask health server on background thread.")
+    
+    # Ab Telegram bot main thread mein chalega
+    logger.info("Starting Telegram Bot...")
+    bot.run()

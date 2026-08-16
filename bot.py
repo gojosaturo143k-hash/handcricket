@@ -27,16 +27,36 @@ match_flow_state = {}
 end_confirmations = {}
 
 def get_mention(user):
-    name = user.first_name or "Player"
-    if user.username:
-        return f"@{user.username}"
-    return f"[{name}](tg://user?id={user.id})"
+    # Agar user Telegram User object hai
+    if hasattr(user, 'first_name'):
+        name = user.first_name or "Player"
+        if user.username:
+            return f"@{user.username}"
+        return f"[{name}](tg://user?id={user.id})"
+    
+    # Agar user DB se aaya hua Row/Dict hai (jaise match_players se)
+    if isinstance(user, dict) or hasattr(user, 'keys'):
+        username = user.get('username')
+        name = user.get('display_name') or user.get('first_name') or "Player"
+        if username:
+            return f"@{username}"
+        return f"[{name}](tg://user?id={user['telegram_id']})"
+    
+    return str(user)
 
 def get_display_name(user):
-    return user.first_name or "Player"
+    # Agar user Telegram User object hai
+    if hasattr(user, 'first_name'):
+        return user.first_name or "Player"
+    
+    # Agar user DB se aaya hua Row/Dict hai
+    if isinstance(user, dict) or hasattr(user, 'keys'):
+        return user.get('display_name') or user.get('first_name') or "Player"
+    
+    return "Player"
 
 def get_mention_by_id(client, chat_id, user_id):
-    return f"[Player](tg://user?id={user.id})"
+    return f"[Player](tg://user?id={user_id})"
 
 def cancel_timer(match_id):
     if match_id in match_flow_state and match_flow_state[match_id].get("timer_task"):

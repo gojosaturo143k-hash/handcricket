@@ -89,6 +89,36 @@ bot = Client(
 # ==========================================
 @bot.on_message(filters.command("start") & filters.private)
 async def start_private(client, message):
+    user_id = message.from_user.id
+    
+    # FIX 3: Check karo ki kya is user ki kisi match mein bowling pending hai?
+    db = get_db()
+    pending_bowler = db.execute("""
+        SELECT m.match_id, m.chat_id, mp.match_id as mid 
+        FROM match_players mp 
+        JOIN matches m ON mp.match_id = m.match_id 
+        WHERE mp.telegram_id = ? AND mp.is_bowling = 1 AND m.status = 'BOWLER_WAITING'
+    """, (user_id,)).fetchone()
+    
+    if pending_bowler:
+        # Haan! Bowling pending hai. Match details nikalo.
+        m = Match(pending_bowler['match_id'])
+        db_match = m.get()
+        batter = m.get_current_batter()
+        
+        over = match_flow_state[pending_bowler['match_id']]["current_over"]
+        ball = match_flow_state[pending_bowler['match_id']]["current_ball"]
+        
+        await message.reply(
+            f"🎯 **YOUR TURN TO BOWL**\n\n"
+            f"🏏 Batter: {get_mention_by_id(client, pending_bowler['chat_id'], batter['telegram_id'])}\n"
+            f"📊 Over: {over}\n"
+            f"🎯 Ball: {ball}\n\n"
+            f"Send your delivery (1–6)."
+        )
+        return # Yahan function end ho gaya, welcome message nahi bhejega
+    
+    # Agar koi pending bowling nahi hai, toh normal welcome message bhejo
     text = """🏏 **FRIENDS HAND CRICKET**
 
 Play hand cricket with your friends in groups!
@@ -185,17 +215,17 @@ async def join_solo(client, message):
     lobby = get_lobby_by_group(message.chat.id)
     if not lobby or lobby['mode'] != 'solo': return await message.reply("❌ No active Solo lobby.")
     m = Match(lobby['match_id'])
-    
-    # FIX: Player ka naam DB mein save karna zaroori hai
     db = get_db()
-    db.execute("INSERT OR IGNORE INTO users (telegram_id, username, display_name) VALUES (?, ?, ?)", 
-               (message.from_user.id, message.from_user.username, message.from_user.first_name))
+    
+    # FIX 1: Pehle users table mein naam update karo
+    db.execute("INSERT OR REPLACE INTO users (telegram_id, username, display_name) VALUES (?, ?, ?)", 
+               (message.from_user.id, message.from_user.username or "", message.from_user.first_name or "Player"))
     db.commit()
     
     if m.add_player(message.from_user.id):
-        # FIX: Add player ke baad uska naam bhi update karo
+        # FIX 2: match_players table mein bhi naam update karo
         db.execute("UPDATE match_players SET username = ?, display_name = ? WHERE match_id = ? AND telegram_id = ?", 
-                   (message.from_user.username, message.from_user.first_name, lobby['match_id'], message.from_user.id))
+                   (message.from_user.username or "", message.from_user.first_name or "Player", lobby['match_id'], message.from_user.id))
         db.commit()
         
         await message.reply(f"✅ {get_display_name(message.from_user)} joined!")

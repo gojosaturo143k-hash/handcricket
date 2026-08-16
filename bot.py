@@ -819,12 +819,19 @@ async def start_super_over(client, message):
     await prompt_team_batting(client, message.chat.id, active['match_id'])
 
 # ==========================================
-# FLASK & GUNICORN INTEGRATION
+# FLASK SERVER (Directly inside bot.py)
 # ==========================================
-def run_flask():
-    from alive import app
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return "Bot is online!", 200
+
+@app.route('/health')
+def health():
+    return "Healthy", 200
 
 if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask, daemon=True)

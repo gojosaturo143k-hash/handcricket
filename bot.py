@@ -833,9 +833,5 @@ def index():
 def health():
     return "Healthy", 200
 
-if __name__ == "__main__":
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    logger.info("Started Flask health server on thread.")
-    logger.info("Starting Telegram Bot...")
-    bot.run()
+# Gunicorn automatically finds 'app' above. 
+# No if __name__ == "__main__" needed anymore!

@@ -27,49 +27,38 @@ match_flow_state = {}
 end_confirmations = {}
 
 def get_mention(user):
-    # Agar user Telegram User object hai
     if hasattr(user, 'first_name'):
         name = user.first_name or "Player"
-        if user.username:
-            return f"@{user.username}"
+        if user.username: return f"@{user.username}"
         return f"[{name}](tg://user?id={user.id})"
     
-    # Agar user DB se aaya hua Row hai (sqlite3.Row ke liye 'in' keyword use karte hain)
-    username = user['username'] if 'username' in user else None
+    if 'username' in user and user['username']:
+        return f"@{user['username']}"
     name = user['display_name'] if 'display_name' in user else "Player"
-    
-    if username:
-        return f"@{username}"
-    
     uid = user['telegram_id'] if 'telegram_id' in user else 0
     return f"[{name}](tg://user?id={uid})"
 
 def get_display_name(user):
-    # Agar user Telegram User object hai
-    if hasattr(user, 'first_name'):
-        return user.first_name or "Player"
-    
-    # Agar user DB se aaya hua Row hai
-    if 'display_name' in user:
-        return user['display_name'] or "Player"
-    if 'first_name' in user:
-        return user['first_name'] or "Player"
-        
+    if hasattr(user, 'first_name'): return user.first_name or "Player"
+    if 'display_name' in user: return user['display_name'] or "Player"
     return "Player"
 
 def get_mention_by_id(client, chat_id, user_id):
     return f"[Player](tg://user?id={user_id})"
 
+# ==========================================
+# IN-MEMORY STATE & TIMERS
+# ==========================================
+active_timers = {} # Format: { match_id: asyncio.Task }
+
 def cancel_timer(match_id):
-    if match_id in match_flow_state and match_flow_state[match_id].get("timer_task"):
-        match_flow_state[match_id]["timer_task"].cancel()
-        match_flow_state[match_id]["timer_task"] = None
+    if match_id in active_timers and active_timers[match_id] and not active_timers[match_id].done():
+        active_timers[match_id].cancel()
+    active_timers[match_id] = None
 
 def set_timer(match_id, task):
     cancel_timer(match_id)
-    if match_id not in match_flow_state:
-        match_flow_state[match_id] = {}
-    match_flow_state[match_id]["timer_task"] = task
+    active_timers[match_id] = task
 
 def get_match_lang(match_id):
     return match_flow_state.get(match_id, {}).get("lang", "eng")
@@ -217,20 +206,14 @@ async def join_solo(client, message):
     m = Match(lobby['match_id'])
     db = get_db()
     
-    # FIX 1: Pehle users table mein naam update karo
     db.execute("INSERT OR REPLACE INTO users (telegram_id, username, display_name) VALUES (?, ?, ?)", 
                (message.from_user.id, message.from_user.username or "", message.from_user.first_name or "Player"))
     db.commit()
     
-    if m.add_player(message.from_user.id):
-        # FIX 2: match_players table mein bhi naam update karo
-        db.execute("UPDATE match_players SET username = ?, display_name = ? WHERE match_id = ? AND telegram_id = ?", 
-                   (message.from_user.username or "", message.from_user.first_name or "Player", lobby['match_id'], message.from_user.id))
-        db.commit()
-        
-        await message.reply(f"✅ {get_display_name(message.from_user)} joined!")
+    if m.add_player(message.from_user.id, message.from_user.username or "", message.from_user.first_name or "Player"):
+        await message.reply(f"✅ {message.from_user.first_name} joined!")
         players = m.get_players()
-        text = "🏏 **SOLO LOBBY**\n\nPlayers:\n" + "\n".join([f"{i+1}. {get_display_name(p)}" for i, p in enumerate(players)])
+        text = "🏏 **SOLO LOBBY**\n\nPlayers:\n" + "\n".join([f"{i+1}. {p['display_name']}" for i, p in enumerate(players)])
         await message.reply(text)
     else: 
         await message.reply("⚠️ You already joined.")

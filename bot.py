@@ -183,19 +183,41 @@ async def join_solo(client, message):
     lobby = get_lobby_by_group(message.chat.id)
     if not lobby or lobby['mode'] != 'solo': return await message.reply("❌ No active Solo lobby.")
     m = Match(lobby['match_id'])
+    
+    # FIX: Player ka naam DB mein save karna zaroori hai
+    db = get_db()
+    db.execute("INSERT OR IGNORE INTO users (telegram_id, username, display_name) VALUES (?, ?, ?)", 
+               (message.from_user.id, message.from_user.username, message.from_user.first_name))
+    db.commit()
+    
     if m.add_player(message.from_user.id):
+        # FIX: Add player ke baad uska naam bhi update karo
+        db.execute("UPDATE match_players SET username = ?, display_name = ? WHERE match_id = ? AND telegram_id = ?", 
+                   (message.from_user.username, message.from_user.first_name, lobby['match_id'], message.from_user.id))
+        db.commit()
+        
         await message.reply(f"✅ {get_display_name(message.from_user)} joined!")
         players = m.get_players()
         text = "🏏 **SOLO LOBBY**\n\nPlayers:\n" + "\n".join([f"{i+1}. {get_display_name(p)}" for i, p in enumerate(players)])
         await message.reply(text)
-    else: await message.reply("⚠️ You already joined.")
-
+    else: 
+        await message.reply("⚠️ You already joined.")
+    
 @bot.on_message(filters.command("join_team_a") & filters.group)
 async def join_ta(client, message):
     lobby = get_lobby_by_group(message.chat.id)
     if not lobby or lobby['mode'] != 'team': return await message.reply("❌ No active Team lobby.")
     m = Match(lobby['match_id'])
+    
+    db = get_db()
+    db.execute("INSERT OR IGNORE INTO users (telegram_id, username, display_name) VALUES (?, ?, ?)", 
+               (message.from_user.id, message.from_user.username, message.from_user.first_name))
+    db.commit()
+    
     if m.add_player(message.from_user.id, 'a'):
+        db.execute("UPDATE match_players SET username = ?, display_name = ? WHERE match_id = ? AND telegram_id = ?", 
+                   (message.from_user.username, message.from_user.first_name, lobby['match_id'], message.from_user.id))
+        db.commit()
         await message.reply(f"✅ {get_display_name(message.from_user)} joined Team A!")
         await show_team_lobby(client, message.chat.id, m)
 
@@ -204,7 +226,16 @@ async def join_tb(client, message):
     lobby = get_lobby_by_group(message.chat.id)
     if not lobby or lobby['mode'] != 'team': return await message.reply("❌ No active Team lobby.")
     m = Match(lobby['match_id'])
+    
+    db = get_db()
+    db.execute("INSERT OR IGNORE INTO users (telegram_id, username, display_name) VALUES (?, ?, ?)", 
+               (message.from_user.id, message.from_user.username, message.from_user.first_name))
+    db.commit()
+    
     if m.add_player(message.from_user.id, 'b'):
+        db.execute("UPDATE match_players SET username = ?, display_name = ? WHERE match_id = ? AND telegram_id = ?", 
+                   (message.from_user.username, message.from_user.first_name, lobby['match_id'], message.from_user.id))
+        db.commit()
         await message.reply(f"✅ {get_display_name(message.from_user)} joined Team B!")
         await show_team_lobby(client, message.chat.id, m)
 

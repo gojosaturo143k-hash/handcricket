@@ -10,14 +10,14 @@ logger = logging.getLogger(__name__)
 # Neeche 'YOUR_URL' ki jagah apne actual GIF/Image ke links daal do.
 # Example: "https://telegra.ph/file/abc123.gif"
 RESULT_ANIMATIONS = {
-    1: "YOUR_URL_FOR_1_GIF",
-    2: "YOUR_URL_FOR_2_GIF",
-    3: "YOUR_URL_FOR_3_GIF",
-    4: "YOUR_URL_FOR_4_GIF",
-    5: "YOUR_URL_FOR_5_GIF",
-    6: "YOUR_URL_FOR_6_GIF",
-    "OUT": "YOUR_URL_FOR_OUT_GIF",
-    "DUCK": "YOUR_URL_FOR_DUCK_GIF",
+    1: "https://lhcrcxfpkyniyvaldefr.supabase.co/storage/v1/object/public/cricketbot/ChatGPT%20Image%20Aug%2016,%202026,%2004_38_39%20PM.png",
+    2: "https://lhcrcxfpkyniyvaldefr.supabase.co/storage/v1/object/public/cricketbot/Gemini_Generated_Image_xhez2oxhez2oxhez.png",
+    3: "https://lhcrcxfpkyniyvaldefr.supabase.co/storage/v1/object/public/cricketbot/Gemini_Generated_Image_wtt32ewtt32ewtt3.png",
+    4: "https://lhcrcxfpkyniyvaldefr.supabase.co/storage/v1/object/public/cricketbot/Gemini_Generated_Image_8te7tv8te7tv8te7.png",
+    5: "https://lhcrcxfpkyniyvaldefr.supabase.co/storage/v1/object/public/cricketbot/Gemini_Generated_Image_depbnndepbnndepb.png",
+    6: "https://lhcrcxfpkyniyvaldefr.supabase.co/storage/v1/object/public/cricketbot/Gemini_Generated_Image_knb74cknb74cknb7.png",
+    "OUT": "https://lhcrcxfpkyniyvaldefr.supabase.co/storage/v1/object/public/cricketbot/Gemini_Generated_Image_k6k9i5k6k9i5k6k9.png",
+    "DUCK": "https://lhcrcxfpkyniyvaldefr.supabase.co/storage/v1/object/public/cricketbot/Gemini_Generated_Image_dimv5jdimv5jdimv.png",
 }
 
 # Cache to save Telegram file_ids after first send (makes it blazing fast)

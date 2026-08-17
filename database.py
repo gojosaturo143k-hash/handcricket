@@ -31,10 +31,10 @@ def init_db():
         status TEXT NOT NULL, host_id INTEGER NOT NULL, overs INTEGER DEFAULT 2,
         current_innings INTEGER DEFAULT 1, team_a_name TEXT DEFAULT 'Team A',
         team_b_name TEXT DEFAULT 'Team B', toss_winner INTEGER, toss_choice TEXT,
-        target INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        target INTEGER DEFAULT 0, temp_batter_choice INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         started_at TIMESTAMP DEFAULT NULL, ended_at TIMESTAMP DEFAULT NULL,
         
-        -- VERSION 2.0 ADDITIONS: Direct state tracking (No Memory Loss)
         current_batter_id INTEGER DEFAULT NULL,
         current_bowler_id INTEGER DEFAULT NULL,
         current_over INTEGER DEFAULT 1,

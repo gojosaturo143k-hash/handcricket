@@ -290,153 +290,234 @@ async def begin_solo_match(client, chat_id, match_id):
     m = Match(match_id)
     m.update_state(MatchState.INNINGS)
     players = m.get_players()
-    db = get_db()
-    for p in players:
-        db.execute("INSERT OR IGNORE INTO users (telegram_id, username, display_name, matches) VALUES (?, ?, ?, 1)", (p['telegram_id'], "", get_display_name(p)))
-        db.commit()
-    text = "🏏 **SOLO MATCH STARTED!**\n\n" + "\n".join([f"{i+1}. {get_display_name(p)}" for i, p in enumerate(players)]) + "\n\nEach player will bat. Others will bowl."
+    
+    text = "🏏 **SOLO MATCH STARTED!**\n\n" + "\n".join([f"{i+1}. {p['display_name']}" for i, p in enumerate(players)]) + "\n\nEach player will bat. Others will bowl."
     await client.send_message(chat_id, text)
-    await setup_next_solo_batter(client, chat_id, match_id, players, 0)
+    
+    # Pehla batter set karo
+    await setup_next_solo_batter(client, chat_id, match_id)
 
-async def setup_next_solo_batter(client, chat_id, match_id, players, index):
-    if index >= len(players):
-        await end_solo_match(client, chat_id, match_id); return
+async def setup_next_solo_batter(client, chat_id, match_id):
     m = Match(match_id)
-    batter = players[index]
+    players = m.get_players()
+    
+    # DB se safely next batter index lo
+    db_m = m.get()
+    current_idx = db_m['solo_batting_index'] if db_m['solo_batting_index'] else 0
+    
+    if current_idx >= len(players):
+        await end_solo_match(client, chat_id, match_id)
+        return
+        
+    batter = players[current_idx]
     m.set_batter(batter['telegram_id'])
     m.update_state(MatchState.BATTER_WAITING)
     
-    match_flow_state[match_id].update({
-        "current_solo_index": index, "current_over": 1, "current_ball": 1,
-        "batter_waiting": True, "bowler_waiting": False, "innings_runs": 0, "bowler_rotation_index": 0
-    })
-    over = match_flow_state[match_id]["current_over"]
-    ball = match_flow_state[match_id]["current_ball"]
-    text = f"🏏 **{get_mention_by_id(client, chat_id, batter['telegram_id'])} IS BATTING**\n\nOver: {over}\nBall: {ball}\n\nSend your shot (1–6)."
+    # Over aur Ball DB se lo
+    over = db_m['current_over']
+    ball = db_m['current_ball']
+    
+    text = f"🏏 **{batter['display_name']} IS BATTING**\n\nOver: {over}\nBall: {ball}\n\nSend your shot (1–6)."
     msg = await client.send_message(chat_id, text)
     
     async def batter_timeout():
-        await asyncio.sleep(AFK_TIMEOUT)
-        if match_flow_state.get(match_id, {}).get("batter_waiting"):
+        await asyncio.sleep(80)
+        fresh_m = Match(match_id).get()
+        if fresh_m and fresh_m['status'] == MatchState.BATTER_WAITING:
             await client.send_message(chat_id, "⏰ BATTER TIMEOUT!\n\n🎯 OUT!")
             m.record_delivery(1, over, ball, batter['telegram_id'], 0, 0, 0, 0, 1)
             await send_animation(client, chat_id, "OUT", msg.id)
-            await setup_next_solo_batter(client, chat_id, match_id, players, index + 1)
+            # Next batter index DB mein update karo
+            m.db.execute("UPDATE matches SET solo_batting_index = solo_batting_index + 1 WHERE match_id = ?", (match_id,))
+            m.db.commit()
+            await setup_next_solo_batter(client, chat_id, match_id)
+            
     set_timer(match_id, asyncio.create_task(batter_timeout()))
 
 async def handle_solo_batter_input(client, chat_id, match_id, user_id, choice):
     m = Match(match_id)
-    batter = m.get_current_batter()
-    if not batter or batter['telegram_id'] != user_id or not match_flow_state.get(match_id, {}).get("batter_waiting"): return False
-    cancel_timer(match_id)
-    match_flow_state[match_id]["batter_waiting"] = False
+    db_m = m.get()
     
+    # 1. Pehle check karo ki match sahi state mein hai ya nahi
+    if not db_m or db_m['status'] != MatchState.BATTER_WAITING: 
+        return False
+        
+    # 2. Check karo ki jo number bheja wo sahi batter hai ya koi aur
+    if db_m['current_batter_id'] != user_id: 
+        return False
+    
+    # 3. Timer band karo
+    cancel_timer(match_id)
+    
+    # 4. Bowler rotate karo
     players = m.get_players()
-    bowlers = [p for p in players if p['telegram_id'] != user_id]
+    bowlers = [p for p in players if p['telegram_id'] != user_id and not p['is_out']]
     if not bowlers: return False
-    rot_idx = match_flow_state[match_id].get("bowler_rotation_index", 0) % len(bowlers)
+    
+    rot_idx = db_m['solo_bowler_index'] % len(bowlers)
     bowler = bowlers[rot_idx]
-    match_flow_state[match_id]["current_bowler_id"] = bowler['telegram_id']
-    match_flow_state[match_id]["batter_choice"] = int(choice)
     
     m.set_bowler(bowler['telegram_id'])
     m.update_state(MatchState.BOWLER_WAITING)
-    match_flow_state[match_id]["bowler_waiting"] = True
     
-    over = match_flow_state[match_id]["current_over"]
-    ball = match_flow_state[match_id]["current_ball"]
+    # 5. BATTER CHOICE DB MEIN SAVE KARO (Zaroori Hai)
+    m.db.execute("UPDATE matches SET target = ? WHERE match_id = ?", (int(choice), match_id)) 
+    m.db.commit()
+    
+    over = db_m['current_over']
+    ball = db_m['current_ball']
+    
     try:
-        await client.send_message(bowler['telegram_id'], f"🎯 **YOUR TURN TO BOWL**\n\n🏏 Batter: {get_mention_by_id(client, chat_id, user_id)}\n📊 Over: {over}\n🎯 Ball: {ball}\n\nSend your delivery (1–6).")
+        await client.send_message(
+            bowler['telegram_id'], 
+            f"🎯 **YOUR TURN TO BOWL**\n\n🏏 Batter: {db_m['current_batter_id']}\n📊 Over: {over}\n🎯 Ball: {ball}\n\nSend your delivery (1–6)."
+        )
     except Exception:
-        await client.send_message(chat_id, f"🎯 {get_mention_by_id(client, chat_id, bowler['telegram_id'])}, it's your turn to bowl!\n\nYou haven't started the bot in private yet.\nPlease open the bot and send /start first.\n\n⏳ You have {AFK_TIMEOUT} seconds.")
+        await client.send_message(
+            chat_id,
+            f"🎯 {bowler['display_name']}, it's your turn to bowl!\n\nYou haven't started the bot in private yet.\nPlease open the bot and send /start first.\n\n⏳ You have 80 seconds."
+        )
     
     async def bowler_timeout():
-        await asyncio.sleep(AFK_TIMEOUT)
-        if match_flow_state.get(match_id, {}).get("bowler_waiting"):
-            match_flow_state[match_id]["bowler_waiting"] = False
-            await client.send_message(chat_id, "⏰ BOWLER TIMEOUT!\n\n+6 runs awarded to the batting side.")
-            match_flow_state[match_id]["innings_runs"] += 6
+        await asyncio.sleep(80)
+        fresh_m = Match(match_id).get()
+        if fresh_m and fresh_m['status'] == MatchState.BOWLER_WAITING:
+            await client.send_message(chat_id, "⏰ BOWLER TIMEOUT!\n\n+6 runs awarded.")
             m.record_delivery(1, over, ball, user_id, bowler['telegram_id'], int(choice), 0, 6, 0)
+            m.db.execute("UPDATE matches SET solo_bowler_index = solo_bowler_index + 1 WHERE match_id = ?", (match_id,))
+            m.db.commit()
             await proceed_solo_next_ball(client, chat_id, match_id)
+            
     set_timer(match_id, asyncio.create_task(bowler_timeout()))
     return True
 
 async def handle_solo_bowler_input(client, match_id, user_id, choice):
     m = Match(match_id)
-    bowler = m.get_current_bowler()
-    if not bowler or bowler['telegram_id'] != user_id or not match_flow_state.get(match_id, {}).get("bowler_waiting"): return False
-    over = match_flow_state[match_id]["current_over"]
+    db_m = m.get()
+    
+    # 1. Check karo ki match BOWLER_WAITING state mein hai ya nahi
+    if not db_m or db_m['status'] != MatchState.BOWLER_WAITING: 
+        return False
+        
+    # 2. Check karo ki ye message current bowler ne hi bheja hai
+    if db_m['current_bowler_id'] != user_id: 
+        return False
+    
+    over = db_m['current_over']
+    
+    # 3. Bowling restrictions check karo
     is_valid, reason = m.is_delivery_valid(user_id, int(choice), over, 1)
     if not is_valid:
-        await client.send_message(user_id, f"⚠️ You cannot bowl {choice} right now.\n\nReason: {choice} {reason}\n\nPlease send another number.")
+        await client.send_message(user_id, f"⚠️ You cannot bowl {choice} right now.\n\nReason: {choice} {reason}\n\nSend another number.")
         return False
+    
+    # 4. Timer band karo
     cancel_timer(match_id)
-    match_flow_state[match_id]["bowler_waiting"] = False
-    batter = m.get_current_batter()
-    b_choice = match_flow_state[match_id]["batter_choice"]
+    
+    # 5. DB se Batter choice aur Bowler choice lo
+    b_choice = db_m['temp_batter_choice']
     bw_choice = int(choice)
+    
+    batter = m.get_current_batter()
+    bowler = m.get_current_bowler()
+    
+    # 6. Ball resolve karo
     m.update_state(MatchState.RESOLVE_BALL)
-    db_match = m.get()
-    await resolve_solo_ball(client, db_match['chat_id'], match_id, batter, bowler, b_choice, bw_choice)
+    await resolve_solo_ball(client, db_m['chat_id'], match_id, batter, bowler, b_choice, bw_choice)
     return True
 
 async def resolve_solo_ball(client, chat_id, match_id, batter, bowler, b_choice, bw_choice):
     m = Match(match_id)
-    over = match_flow_state[match_id]["current_over"]
-    ball = match_flow_state[match_id]["current_ball"]
+    db_m = m.get() # Sab values DB se lo
+    
+    over = db_m['current_over']
+    ball = db_m['current_ball']
+    
     is_out = (b_choice == bw_choice)
     runs = 0 if is_out else b_choice
+    
+    # Delivery DB mein record karo (is function ke andar hi innings_runs badh jayega)
     m.record_delivery(1, over, ball, batter['telegram_id'], bowler['telegram_id'], b_choice, bw_choice, runs, 1 if is_out else 0)
     
+    # DB se fresh score lo (record_delivery ke baad updated hai)
+    fresh_db_m = m.get()
+    current_runs = fresh_db_m['innings_runs']
+    
     if not is_out:
-        match_flow_state[match_id]["innings_runs"] += runs
-        lang = get_match_lang(match_id)
+        lang = "eng" # Get match lang if you implemented it
         comm = get_commentary(lang, "six" if runs == 6 else "four" if runs == 4 else "single", batter['username'])
-        text = f"🏏 **BALL RESULT**\n\n👤 {get_mention_by_id(client, chat_id, batter['telegram_id'])} → {b_choice}\n🎯 {get_mention_by_id(client, chat_id, bowler['telegram_id'])} → {bw_choice}\n\n{comm}\n**+{runs} RUNS**"
+        
+        # Yahan direct DB se naam lenge, koi get_mention_by_id nahi
+        text = f"🏏 **BALL RESULT**\n\n👤 {batter['display_name']} → {b_choice}\n🎯 {bowler['display_name']} → {bw_choice}\n\n{comm}\n**+{runs} RUNS**"
         msg = await client.send_message(chat_id, text)
         await send_animation(client, chat_id, runs, msg.id)
     else:
-        is_duck = (m.db.execute("SELECT runs FROM match_players WHERE match_id=? AND telegram_id=?", (match_id, batter['telegram_id'])).fetchone()['runs'] == 0)
-        text = f"🎯 **OUT!**\n\n👤 {get_mention_by_id(client, chat_id, batter['telegram_id'])} → {b_choice}\n🎯 {get_mention_by_id(client, chat_id, bowler['telegram_id'])} → {bw_choice}"
+        is_duck = (batter['runs'] == 0) # Kya record_delivery se pehle 0 tha? (Haan, kyunki runs add nahi huye out hone pe)
+        text = f"🎯 **OUT!**\n\n👤 {batter['display_name']} → {b_choice}\n🎯 {bowler['display_name']} → {bw_choice}"
         msg = await client.send_message(chat_id, text)
         await send_animation(client, chat_id, "DUCK" if is_duck else "OUT", msg.id)
+        
     await proceed_solo_next_ball(client, chat_id, match_id, is_out)
 
 async def proceed_solo_next_ball(client, chat_id, match_id, is_out=False):
     m = Match(match_id)
-    players = m.get_players()
-    current_idx = match_flow_state[match_id]["current_solo_index"]
+    db_m = m.get()
+    
     if is_out:
-        await setup_next_solo_batter(client, chat_id, match_id, players, current_idx + 1); return
-    b_choice = match_flow_state[match_id]["batter_choice"]
-    if b_choice in [1, 3, 5]:
+        # OUT ho gaya, next batter index DB mein update karo
+        m.db.execute("UPDATE matches SET solo_batting_index = solo_batting_index + 1 WHERE match_id = ?", (match_id,))
+        m.db.commit()
+        await setup_next_solo_batter(client, chat_id, match_id)
+        return
+    
+    # deliveries table se last ball ka batter choice lo (taaki pata chale odd hai ya even)
+    last_ball = m.db.execute("SELECT batter_choice FROM deliveries WHERE match_id = ? ORDER BY id DESC LIMIT 1", (match_id,)).fetchone()
+    
+    if last_ball and last_ball['batter_choice'] in [1, 3, 5]:
         await client.send_message(chat_id, "🏃 Odd runs! Strike rotates to next player.")
-        await setup_next_solo_batter(client, chat_id, match_id, players, current_idx + 1); return
-    over = match_flow_state[match_id]["current_over"]
-    ball = match_flow_state[match_id]["current_ball"]
-    if ball >= BALLS_PER_OVER:
-        await client.send_message(chat_id, "🛑 Over complete! Next player's turn.")
-        await setup_next_solo_batter(client, chat_id, match_id, players, current_idx + 1); return
+        m.db.execute("UPDATE matches SET solo_batting_index = solo_batting_index + 1 WHERE match_id = ?", (match_id,))
+        m.db.commit()
+        await setup_next_solo_batter(client, chat_id, match_id)
+        return
 
-    match_flow_state[match_id]["current_ball"] += 1
-    match_flow_state[match_id]["bowler_rotation_index"] += 1
-    batter = m.get_current_batter()
-    over = match_flow_state[match_id]["current_over"]
-    ball = match_flow_state[match_id]["current_ball"]
+    over = db_m['current_over']
+    ball = db_m['current_ball']
+    
+    # FIX: Agar ball 7 ho gayi matlab 6 balls ho chuki hain (kyunki record_delivery mein +1 ho chuka tha)
+    if ball > 6:
+        await client.send_message(chat_id, "🛑 Over complete! Next player's turn.")
+        m.db.execute("UPDATE matches SET solo_batting_index = solo_batting_index + 1, current_over = current_over + 1, current_ball = 1 WHERE match_id = ?", (match_id,))
+        m.db.commit()
+        await setup_next_solo_batter(client, chat_id, match_id)
+        return
+
+    # Wapas BATTER_WAITING pe set karo
     m.update_state(MatchState.BATTER_WAITING)
-    match_flow_state[match_id]["batter_waiting"] = True
-    text = f"🏏 Score: {match_flow_state[match_id]['innings_runs']}\nOver: {over}.{ball}\n\n{get_mention_by_id(client, chat_id, batter['telegram_id'])} is batting.\n\nSend your shot (1–6)."
+    
+    # Bowler index update karo (fair rotation)
+    m.db.execute("UPDATE matches SET solo_bowler_index = solo_bowler_index + 1 WHERE match_id = ?", (match_id,))
+    m.db.commit()
+    
+    # Fresh data DB se lo
+    db_m = m.get() 
+    batter = m.get_current_batter()
+    
+    text = f"🏏 Score: {db_m['innings_runs']}\nOver: {db_m['current_over']}.{db_m['current_ball']}\n\n{batter['display_name']} is batting.\n\nSend your shot (1–6)."
     msg = await client.send_message(chat_id, text)
     
     async def batter_timeout():
-        await asyncio.sleep(AFK_TIMEOUT)
-        if match_flow_state.get(match_id, {}).get("batter_waiting"):
+        await asyncio.sleep(80)
+        fresh_m = Match(match_id).get()
+        if fresh_m and fresh_m['status'] == MatchState.BATTER_WAITING:
             await client.send_message(chat_id, "⏰ BATTER TIMEOUT!\n\n🎯 OUT!")
-            m.record_delivery(1, over, ball, batter['telegram_id'], 0, 0, 0, 0, 1)
+            m.record_delivery(1, db_m['current_over'], db_m['current_ball'], batter['telegram_id'], 0, 0, 0, 0, 1)
             await send_animation(client, chat_id, "OUT", msg.id)
-            await setup_next_solo_batter(client, chat_id, match_id, players, current_idx + 1)
+            m.db.execute("UPDATE matches SET solo_batting_index = solo_batting_index + 1 WHERE match_id = ?", (match_id,))
+            m.db.commit()
+            await setup_next_solo_batter(client, chat_id, match_id)
+            
     set_timer(match_id, asyncio.create_task(batter_timeout()))
-
+    
 async def end_solo_match(client, chat_id, match_id):
     m = Match(match_id)
     m.update_state(MatchState.RESULT)
@@ -446,7 +527,8 @@ async def end_solo_match(client, chat_id, match_id):
     text = "🏆 **SOLO MATCH ENDED!**\n\n"
     for i, p in enumerate(sorted_players):
         medal = medals[i] if i < 3 else "🏏"
-        text += f"{medal} {get_display_name(p)} — {p['runs']} runs\n"
+        # FIX: Direct display_name use kiya hai
+        text += f"{medal} {p['display_name']} — {p['runs']} runs\n"
     await client.send_message(chat_id, text)
 
 # ==========================================
